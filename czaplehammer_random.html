@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <title>Czaplehammer Randomizer</title>
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f8f9fa;
+      margin: 20px;
+      color: #333;
+    }
+    h1, h2 {
+      color: #2c3e50;
+    }
+    form {
+      background: #fff;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      max-width: 600px;
+    }
+    label {
+      font-weight: bold;
+      display: inline-block;
+      margin-bottom: 10px;
+    }
+    textarea, input[type="number"] {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    input[type="checkbox"] {
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+    button {
+      background: #3498db;
+      color: #fff;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    .error {
+      color: red;
+      margin-top: 10px;
+    }
+    .results, .bring-results {
+      background: #fff;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      max-width: 800px;
+      margin-bottom: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+    th, td {
+      padding: 10px;
+      text-align: left;
+      border: 1px solid #ddd;
+    }
+    th {
+      background: #f1f1f1;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h1>Czaplehammer Randomizer</h1>
+    <form @submit.prevent="randomizeAssignment">
+      <div>
+        <label for="players">
+          Gracze (każdy w osobnej linii, format: Imię: drużyna1, drużyna2, …)
+        </label><br>
+        <textarea id="players" v-model="playersInput" rows="8"></textarea>
+      </div>
+      <div>
+        <label for="rounds">Liczba rund:</label><br>
+        <input id="rounds" type="number" v-model.number="roundsInput" min="1" />
+      </div>
+      <div>
+        <label>
+          <input type="checkbox" v-model="globalUnique">
+          Użyj każdej drużyny tylko raz globalnie (globalna unikalność)
+        </label>
+      </div>
+      <div>
+        <label>
+          <input type="checkbox" v-model="excludeOwnTeams">
+          Gracz nie może grać drużyn, które posiada
+        </label>
+      </div>
+      <div>
+        <button type="submit">Losuj wszystko</button>
+      </div>
+    </form>
+
+    <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
+
+    <!-- Tabela wyników przydziału drużyn wg rund -->
+    <div v-if="hasResults" class="results">
+      <h2>Wyniki przyporządkowania (rundy)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Gracz</th>
+            <th v-for="n in roundsInput" :key="n">Runda {{ n }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(teams, player) in resultAssignments" :key="player">
+            <td>{{ player }}</td>
+            <td v-for="(team, index) in teams" :key="index">{{ team }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Tabela drużyn do przyniesienia -->
+    <div v-if="hasResults" class="bring-results">
+      <h2>Drużyny do przyniesienia</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Gracz</th>
+            <th>Drużyny (posiadane przez gracza, a wybrane przez kogokolwiek)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(teams, player) in resultAssignments" :key="player">
+            <td>{{ player }}</td>
+            <td>{{ getTeamsToBring(player) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+    createApp({
+      data() {
+        return {
+          // Domyślne dane graczy
+          playersInput:
+`Ariel: Nighthaunt, Skaven (Cannon), Skaven (Clawlord), Behemat, Kharadron
+Maciek: Soulblight, Sylvaneth, Kruleboyz
+Suchy: Slaves (Knights), Slaves (Darkoath), Stormcast (Yndrasta), Stormcast (Vigilant), Idoneth, Cities, Lumineth
+Olek: Nurgle, Seraphon
+Karol: Khorne, Ogor, Gitz
+Artur: Fyreslayers, Ossiarch`,
+          roundsInput: 3,
+          globalUnique: false,       // Jeśli true, każda drużyna zostanie użyta tylko raz globalnie.
+          excludeOwnTeams: false,    // Jeśli true, gracz nie może otrzymać drużyny, którą posiada.
+          errorMessage: '',
+          // Wynik przyporządkowania: { gracz: [drużyna_runda1, drużyna_runda2, ...] }
+          resultAssignments: {},
+          // Mapa: gracz -> unikalne drużyny wg danych wejściowych.
+          playersOwnedMapping: {}
+        };
+      },
+      computed: {
+        hasResults() {
+          return Object.keys(this.resultAssignments).length > 0;
+        }
+      },
+      methods: {
+        // Fisher-Yates shuffle
+        shuffle(array) {
+          let currentIndex = array.length, randomIndex;
+          while (currentIndex !== 0) {
+            randomIndex = Math.floor(Math.random() * currentIndex);
+            currentIndex--;
+            [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+          }
+          return array;
+        },
+        // Parsuje wejście graczy na tablicę obiektów: { name, ownedTeams }
+        parsePlayers() {
+          const lines = this.playersInput.split('\n').map(s => s.trim()).filter(s => s !== '');
+          const playersData = [];
+          // Reset mapping
+          this.playersOwnedMapping = {};
+          for (let line of lines) {
+            // Oczekiwany format: "Imię: drużyna1, drużyna2, ..."
+            const parts = line.split(':');
+            if (parts.length < 2) {
+              this.errorMessage = `Błędny format w linii: "${line}". Powinno być "Imię: drużyna1, drużyna2, ..."`;
+              return null;
+            }
+            const name = parts[0].trim();
+            const teamsPart = parts.slice(1).join(':');
+            const ownedTeams = teamsPart.split(',').map(t => t.trim()).filter(t => t !== '');
+            if (!name || ownedTeams.length === 0) {
+              this.errorMessage = `Błędny format w linii: "${line}". Upewnij się, że podajesz imię i przynajmniej jedną drużynę.`;
+              return null;
+            }
+            playersData.push({ name, ownedTeams });
+            // Zachowaj unikalne drużyny wg wejścia gracza.
+            this.playersOwnedMapping[name] = Array.from(new Set(ownedTeams));
+          }
+          return playersData;
+        },
+        randomizeAssignment() {
+          this.errorMessage = '';
+          this.resultAssignments = {};
+
+          const playersData = this.parsePlayers();
+          if (!playersData) return;
+
+          const rounds = this.roundsInput;
+
+          // Budujemy globalną pulę drużyn jako unię wszystkich drużyn podanych przez graczy.
+          const poolSet = new Set();
+          playersData.forEach(player => {
+            player.ownedTeams.forEach(team => poolSet.add(team));
+          });
+          const commonPool = Array.from(poolSet);
+
+          // Walidacja:
+          if (this.globalUnique && commonPool.length < playersData.length * rounds) {
+            this.errorMessage = `Przy globalnej unikalności liczba drużyn (${commonPool.length}) musi być co najmniej równa liczbie graczy (${playersData.length}) pomnożonej przez liczbę rund (${rounds}).`;
+            return;
+          }
+          if (!this.globalUnique && commonPool.length < playersData.length) {
+            this.errorMessage = `Liczba drużyn w globalnej puli (${commonPool.length}) musi być co najmniej równa liczbie graczy (${playersData.length}).`;
+            return;
+          }
+          if (!this.globalUnique && commonPool.length < rounds) {
+            this.errorMessage = `Liczba drużyn w globalnej puli (${commonPool.length}) musi być co najmniej równa liczbie rund (${rounds}).`;
+            return;
+          }
+
+          // Inicjalizacja przypisań – dla każdego gracza tworzymy pustą tablicę.
+          const assignments = {};
+          playersData.forEach(player => {
+            assignments[player.name] = [];
+          });
+
+          // Jeśli tryb globalUnique jest aktywny, śledzimy globalnie użyte drużyny.
+          const globalUsedTeams = new Set();
+
+          // Rekurencyjna funkcja przydzielająca drużyny dla pojedynczej rundy.
+          const assignRound = (playerIndex, roundAssignment, usedTeams) => {
+            if (playerIndex >= playersData.length) return true;
+            const player = playersData[playerIndex];
+            // Dostępne drużyny: z całej puli minus:
+            // - drużyny już użyte w tej rundzie (usedTeams)
+            // - drużyny, które ten gracz otrzymał w poprzednich rundach
+            // - (jeśli globalUnique) drużyny już użyte globalnie
+            // - (jeśli excludeOwnTeams) drużyny, które gracz posiada wg wejścia
+            let available = commonPool.filter(team =>
+              !usedTeams.has(team) &&
+              !assignments[player.name].includes(team) &&
+              (!this.globalUnique || !globalUsedTeams.has(team)) &&
+              (!this.excludeOwnTeams || !player.ownedTeams.includes(team))
+            );
+            available = this.shuffle(available);
+            for (let team of available) {
+              roundAssignment[player.name] = team;
+              usedTeams.add(team);
+              if (assignRound(playerIndex + 1, roundAssignment, usedTeams)) {
+                return true;
+              }
+              // Backtracking.
+              usedTeams.delete(team);
+              delete roundAssignment[player.name];
+            }
+            return false;
+          };
+
+          // Przypisanie drużyn dla każdej rundy.
+          for (let r = 0; r < rounds; r++) {
+            const roundAssignment = {};
+            const usedTeams = new Set();
+            if (!assignRound(0, roundAssignment, usedTeams)) {
+              this.errorMessage = 'Przypisanie nie jest możliwe przy podanych ograniczeniach.';
+              return;
+            }
+            if (this.globalUnique) {
+              Object.values(roundAssignment).forEach(team => globalUsedTeams.add(team));
+            }
+            playersData.forEach(player => {
+              assignments[player.name].push(roundAssignment[player.name]);
+            });
+          }
+          this.resultAssignments = assignments;
+        },
+        // Dla danego gracza, zwraca listę drużyn, które (1) są przypisane w dowolnej rundzie (dla kogokolwiek)
+        // oraz (2) występują w liście drużyn podanych przez tego gracza.
+        getTeamsToBring(playerName) {
+          const globalAssigned = new Set();
+          for (let key in this.resultAssignments) {
+            this.resultAssignments[key].forEach(team => globalAssigned.add(team));
+          }
+          const owned = this.playersOwnedMapping[playerName] || [];
+          const intersection = owned.filter(team => globalAssigned.has(team));
+          return intersection.join(", ");
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
+
