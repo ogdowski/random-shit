@@ -82,10 +82,17 @@
 <body>
   <div id="app">
     <h1>Warhammer Randomizer</h1>
+    <!--
+         Updated input instructions:
+         Format now supports optional already played teams after a "|" character.
+         For example: "Ariel: Nighthaunt, Skaven (Cannon) | Stormcast, Behemat"
+    -->
     <form @submit.prevent="randomizeAssignment">
       <div>
         <label for="players">
-          Gracze (każdy w osobnej linii, format: Imię: drużyna1, drużyna2, …)
+          Gracze (każdy w osobnej linii, format: Imię: drużyna1, drużyna2, … 
+          <br>
+          Opcjonalnie po "|" wpisz już rozegrane drużyny.
         </label><br>
         <textarea id="players" v-model="playersInput" rows="8"></textarea>
       </div>
@@ -103,6 +110,12 @@
         <label>
           <input type="checkbox" v-model="excludeOwnTeams">
           Gracz nie może grać drużyn, które posiada
+        </label>
+      </div>
+      <div>
+        <label>
+          <input type="checkbox" v-model="excludePlayedTeams">
+          Gracz nie może grać drużyn, które już grał
         </label>
       </div>
       <div>
@@ -138,7 +151,7 @@
         <thead>
           <tr>
             <th>Gracz</th>
-            <th>Drużyny (posiadane przez gracza, a wybrane przez kogokolwiek)</th>
+            <th>Drużyny (przypisane wg posiadania i rozłożenia obciążenia)</th>
           </tr>
         </thead>
         <tbody>
@@ -156,22 +169,25 @@
     createApp({
       data() {
         return {
-          // Domyślne dane graczy
+          // Domyślne dane graczy – nowy format wspiera opcjonalną część po "|"
           playersInput:
-`Ariel: Nighthaunt, Skaven (Cannon), Skaven (Clawlord), Behemat, Kharadron
-Maciek: Soulblight, Sylvaneth
-Suchy: Slaves (Knights), Slaves (Darkoath), Stormcast (Yndrasta), Stormcast (Vigilant), Idoneth, Cities, Lumineth, Kruleboyz
-Olek: Nurgle, Seraphon
-Karol: Khorne, Ogor, Gitz
-Artur: Fyreslayers, Ossiarch`,
+`Ariel: Nighthaunt, SkavenCannon, SkavenClawlord, Behemat, Kharadron, Seraphon | Kruleboyz, Fyreslayers, Lumineth
+Maciek: Soulblight, Sylvaneth | SlavesKnights, Nighthaunt, SkavenCannon
+Suchy: SlavesKnights, SlavesDarkoath, StormcastYndrasta, StormcastVigilant, Idoneth, Kruleboyz | Behemat, Ogor, Sylvaneth
+Olek: Nurgle, Seraphon | Gitz, SkavenClawlord, Idoneth
+Karol: Khorne, Ogor, Gitz, Kruleboyz | Kharadron, StormcastVigilant, SlavesDarkoath
+Artur: Fyreslayers, Ossiarch | Khorne, Soulblight, Nurgle`,
           roundsInput: 3,
           globalUnique: false,       // Jeśli true, każda drużyna zostanie użyta tylko raz globalnie.
           excludeOwnTeams: false,    // Jeśli true, gracz nie może otrzymać drużyny, którą posiada.
+          excludePlayedTeams: false, // Jeśli true, gracz nie może otrzymać drużyny, którą już grał.
           errorMessage: '',
           // Wynik przyporządkowania: { gracz: [drużyna_runda1, drużyna_runda2, ...] }
           resultAssignments: {},
           // Mapa: gracz -> unikalne drużyny wg danych wejściowych.
-          playersOwnedMapping: {}
+          playersOwnedMapping: {},
+          // Dodatkowa mapa: gracz -> lista drużyn, które gracz już grał.
+          playersPlayedMapping: {}
         };
       },
       computed: {
@@ -190,29 +206,39 @@ Artur: Fyreslayers, Ossiarch`,
           }
           return array;
         },
-        // Parsuje wejście graczy na tablicę obiektów: { name, ownedTeams }
+        // Parsuje wejście graczy na tablicę obiektów: { name, ownedTeams, playedTeams }
         parsePlayers() {
           const lines = this.playersInput.split('\n').map(s => s.trim()).filter(s => s !== '');
           const playersData = [];
-          // Reset mapping
+          // Reset mappings
           this.playersOwnedMapping = {};
+          this.playersPlayedMapping = {};
           for (let line of lines) {
-            // Oczekiwany format: "Imię: drużyna1, drużyna2, ..."
+            // Oczekiwany format: "Imię: drużyna1, drużyna2, …" lub opcjonalnie "Imię: drużyny posiadane | drużyny rozegrane"
             const parts = line.split(':');
             if (parts.length < 2) {
-              this.errorMessage = `Błędny format w linii: "${line}". Powinno być "Imię: drużyna1, drużyna2, ..."`;
+              this.errorMessage = `Błędny format w linii: "${line}". Powinno być "Imię: drużyna1, drużyna2, …"`;
               return null;
             }
             const name = parts[0].trim();
-            const teamsPart = parts.slice(1).join(':');
-            const ownedTeams = teamsPart.split(',').map(t => t.trim()).filter(t => t !== '');
+            const rest = parts.slice(1).join(':').trim();
+            let ownedTeams = [];
+            let playedTeams = [];
+            if (rest.includes('|')) {
+              const [ownedStr, playedStr] = rest.split('|');
+              ownedTeams = ownedStr.split(',').map(t => t.trim()).filter(t => t !== '');
+              playedTeams = playedStr.split(',').map(t => t.trim()).filter(t => t !== '');
+            } else {
+              ownedTeams = rest.split(',').map(t => t.trim()).filter(t => t !== '');
+            }
             if (!name || ownedTeams.length === 0) {
               this.errorMessage = `Błędny format w linii: "${line}". Upewnij się, że podajesz imię i przynajmniej jedną drużynę.`;
               return null;
             }
-            playersData.push({ name, ownedTeams });
+            playersData.push({ name, ownedTeams, playedTeams });
             // Zachowaj unikalne drużyny wg wejścia gracza.
             this.playersOwnedMapping[name] = Array.from(new Set(ownedTeams));
+            this.playersPlayedMapping[name] = Array.from(new Set(playedTeams));
           }
           return playersData;
         },
@@ -264,11 +290,13 @@ Artur: Fyreslayers, Ossiarch`,
             // - drużyny, które ten gracz otrzymał w poprzednich rundach
             // - (jeśli globalUnique) drużyny już użyte globalnie
             // - (jeśli excludeOwnTeams) drużyny, które gracz posiada wg wejścia
+            // - (jeśli excludePlayedTeams) drużyny, które gracz już grał wg wejścia
             let available = commonPool.filter(team =>
               !usedTeams.has(team) &&
               !assignments[player.name].includes(team) &&
               (!this.globalUnique || !globalUsedTeams.has(team)) &&
-              (!this.excludeOwnTeams || !player.ownedTeams.includes(team))
+              (!this.excludeOwnTeams || !player.ownedTeams.includes(team)) &&
+              (!this.excludePlayedTeams || !player.playedTeams.includes(team))
             );
             available = this.shuffle(available);
             for (let team of available) {
@@ -301,20 +329,53 @@ Artur: Fyreslayers, Ossiarch`,
           }
           this.resultAssignments = assignments;
         },
-        // Dla danego gracza, zwraca listę drużyn, które (1) są przypisane w dowolnej rundzie (dla kogokolwiek)
-        // oraz (2) występują w liście drużyn podanych przez tego gracza.
+        // Funkcja określająca, które drużyny dany gracz ma przynieść.
+        // Logika: dla każdej drużyny (wybranej w dowolnej rundzie) sprawdzamy, którzy właściciele ją posiadają.
+        // Jeśli więcej niż jeden gracz posiada tę drużynę, odpowiedzialność przypisujemy temu, który ma mniej drużyn do przyniesienia.
         getTeamsToBring(playerName) {
+          // Zbiór globalnie przypisanych drużyn.
           const globalAssigned = new Set();
           for (let key in this.resultAssignments) {
             this.resultAssignments[key].forEach(team => globalAssigned.add(team));
           }
-          const owned = this.playersOwnedMapping[playerName] || [];
-          const intersection = owned.filter(team => globalAssigned.has(team));
-          return intersection.join(", ");
+          // Oblicz liczbę drużyn (intersekcję) dla każdego gracza wg danych wejściowych.
+          const bringCount = {};
+          for (const player in this.playersOwnedMapping) {
+            const owned = this.playersOwnedMapping[player];
+            bringCount[player] = owned.filter(team => globalAssigned.has(team)).length;
+          }
+          // Przypisanie odpowiedzialności dla każdej drużyny.
+          const teamResponsibility = {};
+          globalAssigned.forEach(team => {
+            const owners = [];
+            for (const player in this.playersOwnedMapping) {
+              if (this.playersOwnedMapping[player].includes(team)) {
+                owners.push(player);
+              }
+            }
+            if (owners.length > 0) {
+              // Jeśli tylko jeden właściciel – przypisujemy mu.
+              let selected = owners[0];
+              // W przypadku wielu właścicieli wybieramy tego, który ma mniej drużyn do przyniesienia.
+              for (let i = 1; i < owners.length; i++) {
+                if (bringCount[owners[i]] < bringCount[selected]) {
+                  selected = owners[i];
+                }
+              }
+              teamResponsibility[team] = selected;
+            }
+          });
+          // Budujemy listę drużyn przypisaną dla danego gracza.
+          const playerTeams = [];
+          for (const team in teamResponsibility) {
+            if (teamResponsibility[team] === playerName) {
+              playerTeams.push(team);
+            }
+          }
+          return playerTeams.join(", ");
         }
       }
     }).mount('#app');
   </script>
 </body>
 </html>
-
