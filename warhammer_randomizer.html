@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
   <meta charset="UTF-8" />
-  <title>Warhammer Randomizer</title>
+  <title>Randomizer Warhammer</title>
   <!-- Vue 3 CDN -->
   <script src="https://unpkg.com/vue@3"></script>
   <style>
@@ -77,22 +77,33 @@
     th {
       background: #f1f1f1;
     }
+    .format-info {
+      background: #e8f4fd;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
   <div id="app">
-    <h1>Warhammer Randomizer</h1>
-    <!--
-         Updated input instructions:
-         Format now supports optional already played teams after a "|" character.
-         For example: "Ariel: Nighthaunt, Skaven (Cannon) | Stormcast, Behemat"
-    -->
+    <h1>Randomizer Warhammer</h1>
+    
+    <div class="format-info">
+      <strong>Format wejścia:</strong><br>
+      Imię: drużyny_posiadane | biała_lista | czarna_lista<br>
+      <strong>Przykład:</strong> Ariel: Nighthaunt, Skaven | Kruleboyz | Lumineth, Behemat<br>
+      - <strong>Drużyny posiadane:</strong> drużyny które gracz fizycznie posiada (Nighthaunt, Skaven)<br>
+      - <strong>Biała lista:</strong> drużyny które gracz MUSI zagrać dokładnie raz (Kruleboyz)<br>
+      - <strong>Czarna lista:</strong> drużyny które gracz NIE MOŻE zagrać (Lumineth, Behemat)<br>
+      <em>Biała i czarna lista są opcjonalne (można zostawić puste po |)</em>
+    </div>
+
     <form @submit.prevent="randomizeAssignment">
       <div>
         <label for="players">
-          Gracze (każdy w osobnej linii, format: Imię: drużyna1, drużyna2, … 
-          <br>
-          Opcjonalnie po "|" wpisz już rozegrane drużyny.
+          Gracze (każdy w osobnej linii):
         </label><br>
         <textarea id="players" v-model="playersInput" rows="8"></textarea>
       </div>
@@ -114,12 +125,18 @@
       </div>
       <div>
         <label>
-          <input type="checkbox" v-model="excludePlayedTeams">
-          Gracz nie może grać drużyn, które już grał
+          <input type="checkbox" v-model="useWhitelist">
+          Użyj białej listy (gracze muszą zagrać każdą drużynę z białej listy)
         </label>
       </div>
       <div>
-        <button type="submit">Losuj wszystko</button>
+        <label>
+          <input type="checkbox" v-model="useBlacklist">
+          Użyj czarnej listy (gracze nie mogą grać drużyn z czarnej listy)
+        </label>
+      </div>
+      <div>
+        <button type="submit">Losuj przypisanie</button>
       </div>
     </form>
 
@@ -169,25 +186,26 @@
     createApp({
       data() {
         return {
-          // Domyślne dane graczy – nowy format wspiera opcjonalną część po "|"
+          // Przykładowe dane graczy w nowym formacie
           playersInput:
-`Ariel: Nighthaunt, SkavenCannon, SkavenClawlord, Behemat, Kharadron, SeraphonCarno | Kruleboyz, Fyreslayers, Lumineth
-Maciek: Soulblight, Sylvaneth | SlavesKnights, Nighthaunt, SkavenCannon
-Suchy: SlavesKnights, SlavesDarkoath, StormcastYndrasta, StormcastVigilant, Idoneth, Kruleboyz, Gitz, CitiesCannon, CitiesFusil | Behemat, Ogor, Sylvaneth
-Olek: Nurgle, SeraphonCarno, SeraphonChotec | Gitz, SkavenClawlord, Idoneth
-Karol: Khorne, Ogor, Gitz, Kruleboyz | Kharadron, StormcastVigilant, SlavesDarkoath
-Artur: Fyreslayers, OssiarchHarvester, OssiarchMorghast | Khorne, Soulblight, Nurgle`,
+`Ariel: Nighthaunt, SkavenCannon, SkavenClawlord, Behemat, Kharadron, SeraphonCarno | | Kruleboyz, Fyreslayers, Lumineth
+Maciek: Soulblight, Sylvaneth | | SlavesKnights, Nighthaunt, SkavenCannon
+Suchy: SlavesKnights, SlavesDarkoath, StormcastYndrasta, StormcastVigilant, Idoneth, Kruleboyz, Gitz, CitiesCannon, CitiesFusil | | Behemat, Ogor, Sylvaneth
+Olek: Nurgle, SeraphonCarno, SeraphonChotec | | Gitz, SkavenClawlord, Idoneth
+Karol: Khorne, Ogor, Gitz, Kruleboyz | | Kharadron, StormcastVigilant, SlavesDarkoath
+Artur: Fyreslayers, OssiarchHarvester, OssiarchMorghast | | Khorne, Soulblight, Nurgle`,
           roundsInput: 3,
-          globalUnique: false,       // Jeśli true, każda drużyna zostanie użyta tylko raz globalnie.
-          excludeOwnTeams: false,    // Jeśli true, gracz nie może otrzymać drużyny, którą posiada.
-          excludePlayedTeams: false, // Jeśli true, gracz nie może otrzymać drużyny, którą już grał.
+          globalUnique: false,       // Każda drużyna używana tylko raz globalnie
+          excludeOwnTeams: false,    // Gracz nie może grać swoich drużyn
+          useWhitelist: false,       // Gracze muszą zagrać drużyny z białej listy
+          useBlacklist: false,       // Gracze nie mogą grać drużyn z czarnej listy
           errorMessage: '',
           // Wynik przyporządkowania: { gracz: [drużyna_runda1, drużyna_runda2, ...] }
           resultAssignments: {},
-          // Mapa: gracz -> unikalne drużyny wg danych wejściowych.
-          playersOwnedMapping: {},
-          // Dodatkowa mapa: gracz -> lista drużyn, które gracz już grał.
-          playersPlayedMapping: {}
+          // Mapy dla każdego gracza
+          playersOwnedMapping: {},   // gracz -> drużyny posiadane
+          playersWhitelistMapping: {}, // gracz -> biała lista
+          playersBlacklistMapping: {}  // gracz -> czarna lista
         };
       },
       computed: {
@@ -206,42 +224,62 @@ Artur: Fyreslayers, OssiarchHarvester, OssiarchMorghast | Khorne, Soulblight, Nu
           }
           return array;
         },
-        // Parsuje wejście graczy na tablicę obiektów: { name, ownedTeams, playedTeams }
+        // Parsuje wejście graczy na tablicę obiektów: { name, ownedTeams, whitelistTeams, blacklistTeams }
         parsePlayers() {
           const lines = this.playersInput.split('\n').map(s => s.trim()).filter(s => s !== '');
           const playersData = [];
           // Reset mappings
           this.playersOwnedMapping = {};
-          this.playersPlayedMapping = {};
+          this.playersWhitelistMapping = {};
+          this.playersBlacklistMapping = {};
+          
           for (let line of lines) {
-            // Oczekiwany format: "Imię: drużyna1, drużyna2, …" lub opcjonalnie "Imię: drużyny posiadane | drużyny rozegrane"
+            // Format: "Imię: drużyny_posiadane | biała_lista | czarna_lista"
             const parts = line.split(':');
             if (parts.length < 2) {
-              this.errorMessage = `Błędny format w linii: "${line}". Powinno być "Imię: drużyna1, drużyna2, …"`;
+              this.errorMessage = `Błędny format w linii: "${line}". Powinno być "Imię: drużyny_posiadane | biała_lista | czarna_lista"`;
               return null;
             }
+            
             const name = parts[0].trim();
             const rest = parts.slice(1).join(':').trim();
+            
             let ownedTeams = [];
-            let playedTeams = [];
-            if (rest.includes('|')) {
-              const [ownedStr, playedStr] = rest.split('|');
-              ownedTeams = ownedStr.split(',').map(t => t.trim()).filter(t => t !== '');
-              playedTeams = playedStr.split(',').map(t => t.trim()).filter(t => t !== '');
-            } else {
-              ownedTeams = rest.split(',').map(t => t.trim()).filter(t => t !== '');
+            let whitelistTeams = [];
+            let blacklistTeams = [];
+            
+            const sections = rest.split('|');
+            
+            // Drużyny posiadane (zawsze pierwsza sekcja)
+            if (sections[0]) {
+              ownedTeams = sections[0].split(',').map(t => t.trim()).filter(t => t !== '');
             }
+            
+            // Biała lista (druga sekcja, opcjonalna)
+            if (sections[1]) {
+              whitelistTeams = sections[1].split(',').map(t => t.trim()).filter(t => t !== '');
+            }
+            
+            // Czarna lista (trzecia sekcja, opcjonalna)
+            if (sections[2]) {
+              blacklistTeams = sections[2].split(',').map(t => t.trim()).filter(t => t !== '');
+            }
+            
             if (!name || ownedTeams.length === 0) {
-              this.errorMessage = `Błędny format w linii: "${line}". Upewnij się, że podajesz imię i przynajmniej jedną drużynę.`;
+              this.errorMessage = `Błędny format w linii: "${line}". Upewnij się, że podajesz imię i przynajmniej jedną drużynę posiadaną.`;
               return null;
             }
-            playersData.push({ name, ownedTeams, playedTeams });
-            // Zachowaj unikalne drużyny wg wejścia gracza.
+            
+            playersData.push({ name, ownedTeams, whitelistTeams, blacklistTeams });
+            
+            // Zachowaj unikalne drużyny wg wejścia gracza
             this.playersOwnedMapping[name] = Array.from(new Set(ownedTeams));
-            this.playersPlayedMapping[name] = Array.from(new Set(playedTeams));
+            this.playersWhitelistMapping[name] = Array.from(new Set(whitelistTeams));
+            this.playersBlacklistMapping[name] = Array.from(new Set(blacklistTeams));
           }
           return playersData;
         },
+        
         randomizeAssignment() {
           this.errorMessage = '';
           this.resultAssignments = {};
@@ -251,100 +289,147 @@ Artur: Fyreslayers, OssiarchHarvester, OssiarchMorghast | Khorne, Soulblight, Nu
 
           const rounds = this.roundsInput;
 
-          // Budujemy globalną pulę drużyn jako unię wszystkich drużyn podanych przez graczy.
+          // Budujemy globalną pulę drużyn jako unię wszystkich drużyn posiadanych przez graczy
           const poolSet = new Set();
           playersData.forEach(player => {
             player.ownedTeams.forEach(team => poolSet.add(team));
           });
           const commonPool = Array.from(poolSet);
 
-          // Walidacja:
+          // Walidacja podstawowa
           if (this.globalUnique && commonPool.length < playersData.length * rounds) {
             this.errorMessage = `Przy globalnej unikalności liczba drużyn (${commonPool.length}) musi być co najmniej równa liczbie graczy (${playersData.length}) pomnożonej przez liczbę rund (${rounds}).`;
             return;
           }
-          if (!this.globalUnique && commonPool.length < playersData.length) {
-            this.errorMessage = `Liczba drużyn w globalnej puli (${commonPool.length}) musi być co najmniej równa liczbie graczy (${playersData.length}).`;
-            return;
-          }
-          if (!this.globalUnique && commonPool.length < rounds) {
-            this.errorMessage = `Liczba drużyn w globalnej puli (${commonPool.length}) musi być co najmniej równa liczbie rund (${rounds}).`;
-            return;
+
+          // Walidacja białej listy
+          if (this.useWhitelist) {
+            for (let player of playersData) {
+              if (player.whitelistTeams.length > rounds) {
+                this.errorMessage = `Gracz ${player.name} ma ${player.whitelistTeams.length} drużyn w białej liście, ale jest tylko ${rounds} rund. Każda drużyna z białej listy musi być zagrana dokładnie raz.`;
+                return;
+              }
+            }
           }
 
-          // Inicjalizacja przypisań – dla każdego gracza tworzymy pustą tablicę.
+          // Inicjalizacja przypisań
           const assignments = {};
           playersData.forEach(player => {
             assignments[player.name] = [];
           });
 
-          // Jeśli tryb globalUnique jest aktywny, śledzimy globalnie użyte drużyny.
+          // Jeśli tryb globalUnique jest aktywny, śledzimy globalnie użyte drużyny
           const globalUsedTeams = new Set();
 
-          // Rekurencyjna funkcja przydzielająca drużyny dla pojedynczej rundy.
+          // Dla białej listy - śledzimy które drużyny każdy gracz już zagrał z białej listy
+          const whitelistProgress = {};
+          if (this.useWhitelist) {
+            playersData.forEach(player => {
+              whitelistProgress[player.name] = [...player.whitelistTeams];
+            });
+          }
+
+          // Rekurencyjna funkcja przydzielająca drużyny dla pojedynczej rundy
           const assignRound = (playerIndex, roundAssignment, usedTeams) => {
             if (playerIndex >= playersData.length) return true;
+            
             const player = playersData[playerIndex];
-            // Dostępne drużyny: z całej puli minus:
-            // - drużyny już użyte w tej rundzie (usedTeams)
-            // - drużyny, które ten gracz otrzymał w poprzednich rundach
-            // - (jeśli globalUnique) drużyny już użyte globalnie
-            // - (jeśli excludeOwnTeams) drużyny, które gracz posiada wg wejścia
-            // - (jeśli excludePlayedTeams) drużyny, które gracz już grał wg wejścia
-            let available = commonPool.filter(team =>
-              !usedTeams.has(team) &&
-              !assignments[player.name].includes(team) &&
-              (!this.globalUnique || !globalUsedTeams.has(team)) &&
-              (!this.excludeOwnTeams || !player.ownedTeams.includes(team)) &&
-              (!this.excludePlayedTeams || !player.playedTeams.includes(team))
-            );
+            
+            // Dostępne drużyny z całej puli minus różne ograniczenia
+            let available = commonPool.filter(team => {
+              // Podstawowe ograniczenia
+              if (usedTeams.has(team)) return false;
+              if (assignments[player.name].includes(team)) return false;
+              if (this.globalUnique && globalUsedTeams.has(team)) return false;
+              if (this.excludeOwnTeams && player.ownedTeams.includes(team)) return false;
+              if (this.useBlacklist && player.blacklistTeams.includes(team)) return false;
+              
+              return true;
+            });
+
+            // Jeśli używamy białej listy, sprawdź czy gracz ma jeszcze drużyny do zagrania z białej listy
+            if (this.useWhitelist && whitelistProgress[player.name].length > 0) {
+              // Gracz musi zagrać drużynę z białej listy w tej rundzie
+              available = available.filter(team => whitelistProgress[player.name].includes(team));
+            }
+
             available = this.shuffle(available);
+            
             for (let team of available) {
               roundAssignment[player.name] = team;
               usedTeams.add(team);
+              
+              // Jeśli to drużyna z białej listy, usuń ją z postępu
+              let whitelistBackup = null;
+              if (this.useWhitelist && whitelistProgress[player.name].includes(team)) {
+                whitelistBackup = [...whitelistProgress[player.name]];
+                whitelistProgress[player.name] = whitelistProgress[player.name].filter(t => t !== team);
+              }
+              
               if (assignRound(playerIndex + 1, roundAssignment, usedTeams)) {
                 return true;
               }
-              // Backtracking.
+              
+              // Backtracking
               usedTeams.delete(team);
               delete roundAssignment[player.name];
+              
+              // Przywróć stan białej listy
+              if (whitelistBackup) {
+                whitelistProgress[player.name] = whitelistBackup;
+              }
             }
             return false;
           };
 
-          // Przypisanie drużyn dla każdej rundy.
+          // Przypisanie drużyn dla każdej rundy
           for (let r = 0; r < rounds; r++) {
             const roundAssignment = {};
             const usedTeams = new Set();
+            
             if (!assignRound(0, roundAssignment, usedTeams)) {
-              this.errorMessage = 'Przypisanie nie jest możliwe przy podanych ograniczeniach.';
+              this.errorMessage = `Nie można przypisać drużyn dla rundy ${r + 1} przy podanych ograniczeniach.`;
               return;
             }
+            
             if (this.globalUnique) {
               Object.values(roundAssignment).forEach(team => globalUsedTeams.add(team));
             }
+            
             playersData.forEach(player => {
               assignments[player.name].push(roundAssignment[player.name]);
             });
           }
+
+          // Sprawdź czy wszyscy gracze zagrali wszystkie drużyny z białej listy
+          if (this.useWhitelist) {
+            for (let player of playersData) {
+              if (whitelistProgress[player.name].length > 0) {
+                this.errorMessage = `Gracz ${player.name} nie zagrał wszystkich drużyn z białej listy: ${whitelistProgress[player.name].join(', ')}`;
+                return;
+              }
+            }
+          }
+
           this.resultAssignments = assignments;
         },
-        // Funkcja określająca, które drużyny dany gracz ma przynieść.
-        // Logika: dla każdej drużyny (wybranej w dowolnej rundzie) sprawdzamy, którzy właściciele ją posiadają.
-        // Jeśli więcej niż jeden gracz posiada tę drużynę, odpowiedzialność przypisujemy temu, który ma mniej drużyn do przyniesienia.
+        
+        // Funkcja określająca, które drużyny dany gracz ma przynieść
         getTeamsToBring(playerName) {
-          // Zbiór globalnie przypisanych drużyn.
+          // Zbiór globalnie przypisanych drużyn
           const globalAssigned = new Set();
           for (let key in this.resultAssignments) {
             this.resultAssignments[key].forEach(team => globalAssigned.add(team));
           }
-          // Oblicz liczbę drużyn (intersekcję) dla każdego gracza wg danych wejściowych.
+          
+          // Oblicz liczbę drużyn (przecięcie) dla każdego gracza wg danych wejściowych
           const bringCount = {};
           for (const player in this.playersOwnedMapping) {
             const owned = this.playersOwnedMapping[player];
             bringCount[player] = owned.filter(team => globalAssigned.has(team)).length;
           }
-          // Przypisanie odpowiedzialności dla każdej drużyny.
+          
+          // Przypisanie odpowiedzialności dla każdej drużyny
           const teamResponsibility = {};
           globalAssigned.forEach(team => {
             const owners = [];
@@ -353,19 +438,22 @@ Artur: Fyreslayers, OssiarchHarvester, OssiarchMorghast | Khorne, Soulblight, Nu
                 owners.push(player);
               }
             }
+            
             if (owners.length > 0) {
-              // Jeśli tylko jeden właściciel – przypisujemy mu.
+              // Jeśli tylko jeden właściciel – przypisujemy mu
               let selected = owners[0];
-              // W przypadku wielu właścicieli wybieramy tego, który ma mniej drużyn do przyniesienia.
+              // W przypadku wielu właścicieli wybieramy tego, który ma mniej drużyn do przyniesienia
               for (let i = 1; i < owners.length; i++) {
                 if (bringCount[owners[i]] < bringCount[selected]) {
                   selected = owners[i];
                 }
               }
               teamResponsibility[team] = selected;
+              bringCount[selected]++; // Aktualizuj licznik dla kolejnych decyzji
             }
           });
-          // Budujemy listę drużyn przypisaną dla danego gracza.
+          
+          // Budujemy listę drużyn przypisaną dla danego gracza
           const playerTeams = [];
           for (const team in teamResponsibility) {
             if (teamResponsibility[team] === playerName) {
